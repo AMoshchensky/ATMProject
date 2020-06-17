@@ -1,0 +1,704 @@
+//Anton Moshchensky
+//ICS3U - Final Assignment
+//Automatic Teller Machine (ATM) Assignment
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <math.h>
+
+// STANDARD DEFINITIONS TO PROVIDE CROSS PLATFORM clear screen and pause commands
+#if defined(_WIN32) || defined(_WIN64)
+    #define clrscr() system("cls")
+    #define pause() system("pause")
+#else
+    #define clrscr() printf("\x1B[1;1H\x1B[2J")
+    #define pause() fflush(stdout); system("read -r -p \"Press any key to continue...\" key")
+#endif
+
+typedef struct {
+    int cardNum, other, overdraft; //user's card number, 'other' account and overdraft balances
+    char name[50], password[20]; //name and password
+    long int chequing, savings; //account balances
+} User;
+
+typedef struct {
+    int value; //integer amount of transaction
+    char type[50], address[50]; //type of transaction, where the funds went
+} History;
+
+int scanData(FILE *fp, User *account) { //read info from file into account arrays
+    int x = 0;
+
+    while(!feof(fp)) {
+
+        fgets(account[x].name, 50, fp);
+        strtok(account[x].name, "\n"); //prevent newline character from being shown in string
+
+        fscanf(fp, "%i", &account[x].cardNum);
+        getc(fp); //skip new line character
+
+        fgets(account[x].password, 20, fp);
+        strtok(account[x].password, "\n");
+
+        fscanf(fp, "%ld", &account[x].chequing);
+        getc(fp);
+
+        fscanf(fp, "%ld", &account[x].savings);
+        getc(fp);
+
+        fscanf(fp, "%i", &account[x].other);
+        getc(fp);
+
+        fscanf(fp, "%i", &account[x].overdraft);
+        getc(fp);
+
+        x++;
+    }
+
+    fclose(fp); //close file
+
+    return x; //returns the number of accounts
+}
+
+void scanCSO(int *chequing, int *savings, int *other) { //scan chequing, savings, and other accounts
+    int flag = 0; //used in error- trapping user input
+    char input[20], choice; //used for user input
+
+    do{
+        flag = 0;
+
+        printf("\n\t\tChequing: ");
+        gets(input);
+
+        if (input[0] == '\0') *chequing = 0; //user pressed enter to skip
+        else {
+            if (atof(input) <= 0) { //user entered a negative, zero, or character
+                printf("\n\t\33[31mInvalid Amount Entered, please try again...\33[0m\n");
+                flag = 1; //error trap
+            }
+            else {
+                    *chequing = round(atof(input)*100); //convert amount to integer value
+                    flag = 0;  //pass through loop
+            }
+        }
+    } while (flag == 1); //loop until a valid amount is entered, or user skips
+
+    do{
+        flag = 0;
+
+        printf("\n\t\tSavings: ");
+        gets(input);
+
+        if (input[0] == '\0') *savings = 0;
+        else {
+            if (atof(input) <= 0) {
+                printf("\n\t\33[31mInvalid Amount Entered, please try again...\33[0m\n");
+                flag = 1;
+            }
+            else {
+                    *savings = round(atof(input)*100);
+                    flag = 0;
+            }
+        }
+    } while (flag == 1);
+
+    do{
+        flag = 0;
+
+        printf("\n\t\tOther: ");
+        gets(input);
+        if (input[0] == '\0') *other = 0;
+        else {
+            if (atof(input) <= 0) {
+                printf("\n\t\33[31mInvalid Amount Entered, please try again...\33[0m\n");
+                flag = 1;
+            }
+            else {
+                    *other = round(atof(input)*100);
+                    flag = 0;
+            }
+        }
+    } while (flag == 1);
+}
+
+int newAccount(User *account, int *numAcc) { //create a new account
+    int flag = 0, card;
+    int chequing, savings, other;
+    char input[20], choice;
+
+    clrscr();
+    printf("\n\t === \33[36mOPENING AN ACCOUNT\33[0m ===\n"); //header
+
+    do{
+        printf("\n\tFull Name: ");
+        gets(account[*numAcc].name); //user entry
+
+        if (account[*numAcc].name[0] == '\0') printf("\n\t\33[33mEnter a name please...\33[0m\n"); //user just pressed enter
+    } while (account[*numAcc].name[0] == '\0'); //loop until there is something in the name box
+
+    do {
+        flag = 0;
+
+        printf("\n\tNew Card Number: ");
+        gets(input);
+        card = atoi(input);
+
+        if(card <= 0) { //user entered a character or a negative card number
+            flag = 1;
+            printf("\n\t\33[31mInvalid Card Number, Try again...\33[0m\n");
+        }
+        else  { //valid card number
+            for(int i = 0; i < *numAcc; i++) { //check if the card is already in use
+                if (card == account[i].cardNum) {
+                    printf("\n\t\33[33mSorry, this card number is already in use.\33[0m \n\tPlease try again with a different card number...\n\n\t");
+                    flag = 1;
+                    pause();
+                    break;
+                }
+            }
+        }
+    } while (flag == 1); //loops until user enters valid card number
+
+    account[*numAcc].cardNum = card; //sets new card number
+
+    do {
+        printf("\tPIN: ");
+        gets(account[*numAcc].password);
+
+        if (account[*numAcc].password[0] == '\0') printf("\n\t\33[33mEnter a password please...\33[0m\n"); //user just pressed enter
+    } while (account[*numAcc].password[0] == '\0');
+
+    printf("\n\t- Enter the amount ($) you would like to initially\n\tdeposit in the available accounts...\n\t(Press Enter to Skip Current Account): \n"); //prompt
+
+    scanCSO(&chequing, &savings, &other);
+
+    account[*numAcc].chequing = chequing; //assign scanned values into array
+    account[*numAcc].savings = savings;
+    account[*numAcc].other = other;
+
+    do{
+        flag = 0;
+
+        printf("\n\t\tMaximum Overdraft \n\t\t(Press Enter to Opt-Out of Overdraft Protection) \n\n\t\tOverdraft: ");
+        gets(input);
+
+        if (input[0] == '\0') account[*numAcc].overdraft = 0;
+        else {
+            if (atof(input) <= 0) { //user entered a negative, zero, or character amount
+                printf("\n\t\33[31mInvalid Amount Entered, please try again...\33[0m\n");
+                flag = 1;
+            }
+            else {
+                account[*numAcc].overdraft = round(atof(input)*100);
+                flag = 0;
+            }
+        }
+    } while (flag == 1);
+
+    printf("\n\t\33[32m*New Account Created Successfully!*\33[0m\n\n\t");
+    *numAcc += 1; //increase the counter for the number of accounts
+
+    pause();
+}
+
+int checkLogin(User *account, int *numAcc, int card, char password[20]) { //function to verify user's entered login
+    for (int i = 0; i < *numAcc; i++) { //scan through all accounts
+        if(account[i].cardNum == card) { //check if username exists
+            if (strcmp(account[i].password, password) == 0) return i; //if username exists, check if the password matches, if it does, return the index of the account
+        }
+    }
+    return -1; //username doesn't exist or username doesn't match with password
+}
+
+int loginMenu(User *account, int *numAcc) { //very first menu shown
+    int card, flag = 0, flag2 = 0, selection;
+    char input[20], password[20], choice;
+
+    clrscr();
+
+    //header and options
+    printf("\n\t === \33[36mSTART MENU:\33[0m ===\n\n\tWould you like to...\n");
+    printf("\n\t--------------------------------\n");
+    printf("\t1. Login\n\t2. Create Account");
+    printf("\n\t--------------------------------\n");
+    printf("\n\t  Selection: ");
+
+    gets(input); //user input
+    selection = atoi(input);
+
+    if(selection == 1) { //login
+        fflush(stdin); //clear any input from menu or previous login attempts
+
+        do {
+            clrscr();
+
+            printf("\n\t === \33[36mLOGIN:\33[0m ===\n\n\tCard Number: ");
+            gets(input); //safeguard against the user entering letters when there should be numbers
+            card = atoi(input); //equals the card number or 0 if letters entered,
+
+            printf("\tPassword: ");
+            gets(password);
+
+            flag = checkLogin(account, numAcc, card, password); //checks if the login is valid
+
+            if (flag == -1) {
+                    do{
+                        fflush(stdin); //clear input
+
+                        printf("\n\t\33[31mIncorrect Login...\33[0m \n\n\tWould you like to try again?(y/n): "); //invalid login
+                        scanf("%c", &choice);
+                        getchar();
+
+                        if (tolower(choice) == 'y') {
+                            flag = -1; //loop through login screen
+                            flag2 = 0; //exit error message
+                        }
+                        else if (tolower(choice) == 'n') loginMenu(account, numAcc); //return to start menu
+                        else {
+                            printf("\n\t\33[33mIt's a (y)es or (n)o, please try again...\33[0m\n"); //ask if user wants recommended amount again
+                            flag2 = 1;
+                        }
+                    } while(flag2 == 1); //loop until user types in y or n to retry
+            }
+        } while (flag == -1); //loops until valid login
+
+        return flag; //returns the index of the account used to login
+    }
+    else if (selection == 2) {
+            fflush(stdin); //clear input
+            newAccount(account, numAcc); //create account
+            loginMenu(account, numAcc); //return to start menu
+    }
+    else {
+        printf("\n\t\33[31mSorry, that's not a valid selection.\33[0m\n\tPlease try again...\n\n\t"); //invalid selection
+        fflush(stdin); //clear input
+        pause();
+        loginMenu(account, numAcc); //restart login menu
+    }
+}
+
+void printBalance(User *account, int accInd) { //print user's current account balances
+    printf("\n === \33[36mFINANCES:\33[0m ===");
+    printf("\n --------------------------------\n");
+    if (account[accInd].chequing != 0) printf("  Chequing: \33[32m$%.2f\33[0m\n", account[accInd].chequing/(float)100); //if the account balance is greater than 0, print it
+    else printf("  No Funds in Chequing\n");
+    if (account[accInd].savings != 0) printf("  Savings: \33[32m$%.2f\33[0m\n", account[accInd].savings/(float)100);
+    else printf("  No Funds in Savings\n");
+    if (account[accInd].other != 0) printf("  Other: \33[32m$%.2f\33[0m\n", account[accInd].other/(float)100);
+    if (account[accInd].overdraft != 0) printf("  Max Overdraft: \33[33m$%.2f\33[0m \n", account[accInd].overdraft/(float)100);
+    else printf("  No Overdraft\n");
+    printf(" --------------------------------\n");
+}
+
+int withdrawContd(int accAmount, int overdraft, User *account, int accInd) { //withdraw continued, used to make withdrawing from all 3 accounts more efficient
+    int num20 = 0, num50 = 0; //counters
+    int amount, track;
+    int flag = 0;
+    char input[50], choice; //used for all user input
+
+    clrscr();
+
+    printBalance(account, accInd); //print user finances
+
+    printf("\n\t\t === \33[36mWITHDRAW:\33[0m ===\n\n"); //header ansd options
+    printf("\t- How much would you like to withdraw?\n\t(Amounts can only be made of $20 and $50 bills)\n\n\tAmount ($): ");
+
+    gets(input); //user input
+    amount = round(atof(input)*100); //convert to integer amount
+
+    if (amount < 2000 || amount > accAmount + overdraft) {
+        printf("\n\t\33[31mSorry, thats an invalid amount...\33[0m");
+
+        if (amount > accAmount + overdraft) printf("\n\tYou have attempted to withdraw more than the\n\tselected account + overdraft.\n");
+        else printf("\n\tYour withdraw must be greater than or equal to $20.");
+
+        do{
+            fflush(stdin); //clear input
+
+            printf("\n\n\tWould you like to try again? (y/n): ");
+            scanf("%c", &choice);
+            getchar();
+
+            if (tolower(choice) == 'y') withdrawContd(accAmount, overdraft, account, accInd); //restart withdraw
+            else if(tolower(choice) == 'n') {
+                printf("\n\t\t\33[33m*Withdraw Cancelled*\33[0m\n\n\t");
+                pause();
+                return 0; //loop through menu in main()
+            }
+            else {
+                printf("\n\t\33[33mIt's a (y)es or (n)o...\33[0m");
+                flag = 1;
+            }
+        } while (flag == 1);
+    }
+    else { //valid entry
+            //calculate the number of $20 and $50 bills
+        track = amount; //track is used to keep track of the amount while determining the number of $20 and $50 bills
+
+        while(track - 5000 >= 0){
+            track -= 5000;
+            num50 += 1;
+        }
+        while(track - 2000 >= 0){
+            track -= 2000;
+            num20 += 1;
+        }
+
+        if(5000*num50+2000*num20 != amount) { //amount requested could not be made of consecutive $50 then $20 bills
+
+        //this section is made for values that can be made with $20 and $50, but require a different combination of bills (ie: $80)
+                num50--; //remove $50
+                num20 += 3; //add 3 $20 bills
+        }
+
+        if(5000*num50+2000*num20 != amount) { //different combination of bills didn't work, reverse changes. (amount simply cannot be made of $20 and $50 bills)
+            num50++; //revert changes
+            num20 -= 3;
+
+            printf("\n\t\33[33mSorry, the exact amount requested could not be withdrawn... \33[0m\n\tA recommended withdraw is: $%.2f\n", (5000*num50+2000*num20)/(float)100);
+            do {
+                fflush(stdin); //clear input
+
+                printf("\n\tWould you like to proceed with the recommended amount? \n\t\ty/n: ");
+                scanf("%c", &choice);
+                getchar();
+
+                if (tolower(choice) == 'y') { //user chooses to proceed with recommended amount
+                    amount = 5000*num50+2000*num20;
+                    flag = 0; //pass through error trap
+                }
+                else if (tolower(choice) == 'n') {
+                    printf("\n\t\t\33[33m*Withdraw Cancelled*\33[0m\n");
+                    pause();
+                    return 0; //return to menu
+                }
+                else {
+                    printf("\n\t\33[33mIt's a (y)es or (n)o, please try again...\33[0m\n\n"); //ask if user wants recommended amount again
+                    fflush(stdin); //clear input
+                    flag = 1;
+                }
+            } while (flag == 1);
+        }
+
+        //confirm withdraw
+        printf("\n\t\t\33[32mREQUESTED WITHDRAW:\33[0m"); //outline withdraw
+        if (num50 > 0) printf("\n\t$50 x %i", num50); //print number of each bill
+        if (num20 > 0) printf("\n\t$20 x %i", num20);
+        printf("\n\tTOTAL AMOUNT: \33[32m$%.2f\33[0m", amount/(float)100);
+
+        return amount;
+    }
+}
+
+void withdraw(User *account, History *transaction, int accInd, int *numHist) { //function to withdraw from chequings account
+    clrscr();
+
+    int amount; //amount being withdrawn, is = 0 if transaction is cancelled
+    int selection; //user input
+    int flag = 0;
+    char input[50], choice; //used for all user input
+
+    printBalance(account, accInd); //print user finances
+
+    printf("\n\t\t === \33[36mWITHDRAW:\33[0m ===\n\n"); //header ansd options
+
+    printf("\tFrom which account would you like to withdraw from?\n\t\t1 - Chequing\n\t\t2 - Savings\n\t\t3 - 'Other'\n\t\t4 - Return to Menu\n\tSelection: "); //options
+
+    gets(input); //UI
+    selection = atoi(input);
+
+    if (selection == 1) amount = withdrawContd(account[accInd].chequing, account[accInd].overdraft, account, accInd); //go through actual withdraw screen with selected account
+    else if (selection == 2) amount =  withdrawContd(account[accInd].savings, account[accInd].overdraft, account, accInd);
+    else if (selection == 3) amount = withdrawContd(account[accInd].other, account[accInd].overdraft, account, accInd);
+    else if (selection == 4) return; //exit
+    else {
+        printf("\n\t\33[33mPlease pick a valid account...\33[0m"); //invalid selection
+        fflush(stdin);
+        pause();
+        withdraw(account, transaction, accInd, numHist); //loop through selection again
+    }
+
+    if (amount > 0) {
+        do {
+            fflush(stdin); //clear input
+
+            printf("\n\n\tConfirm Withdraw? (y/n): ");
+            scanf("%c", &choice);
+            getchar();
+
+            if (tolower(choice) == 'y') { //record transaction in history
+                strcpy(transaction[*numHist].type, "Withdraw from"); //set description of transaction
+                transaction[*numHist].value = amount; //set value of transaction
+
+                if (selection == 1) {
+                    account[accInd].chequing -= amount; //remove money from balance
+                    strcpy(transaction[*numHist].address, "Chequing Account"); //set which account was withdrawn from
+                }
+                else if (selection == 2) {
+                    account[accInd].savings -= amount; //remove money from balance
+                    strcpy(transaction[*numHist].address, "Savings Account"); //set which account was withdrawn from
+                }
+                else if (selection == 3) {
+                    account[accInd].other -= amount; //remove money from balance
+                    strcpy(transaction[*numHist].address, "'Other' Account"); //set which account was withdrawn from
+                }
+
+                flag = 0; //bypass error loop
+
+                *numHist += 1; //increase counter for next transaction
+            }
+            else if (tolower(choice) == 'n') { //cancel withdraw
+                printf("\n\t\t\33[33m*Withdraw Cancelled*\33[0m\n\n\t");
+                flag = 0;
+                pause();
+            }
+            else {
+                printf("\n\t\33[33mIt's a (y)es or (n)o, please try again...\33[0m"); //ask if user wants recommended amount again
+                flag = 1; //loop through confirm withdraw
+            }
+        } while (flag == 1);
+    }
+    else if (amount == -1) withdraw(account, transaction, accInd, numHist);
+}
+
+void deposit(User *account, History *transaction, int accInd, int *numHist) { //deposit funds into user'saccounts
+    clrscr();
+    int chequing, savings, other;
+    int flag = 0;
+    char input[50], choice; //used for all user input
+
+    printBalance(account, accInd); //print user finances
+
+    printf("\n\t\t === \33[36mDEPOSIT:\33[0m ===\n\n"); //header
+    printf("\t- Type in the amount ($) you would like to deposit \n\tin the selected account\n\t(Press enter to skip current account)\n");
+
+    scanCSO(&chequing, &savings, &other);
+
+    if (chequing > 0) { //if the user entered a value
+        account[accInd].chequing += chequing; //increase balance
+        transaction[*numHist].value = chequing; //record transaction info
+        strcpy(transaction[*numHist].address, "Chequing Account"); //record which account deposit was made to
+        strcpy(transaction[*numHist].type, "Deposit to"); //record the type of deposit
+        *numHist += 1; //increment the number of transactions
+    }
+    if (savings > 0) {
+        account[accInd].savings += savings;
+        transaction[*numHist].value = savings;
+        strcpy(transaction[*numHist].address, "Savings Account");
+        strcpy(transaction[*numHist].type, "Deposit to");
+        *numHist += 1;
+    }
+    if (other > 0) {
+        account[accInd].other += other;
+        transaction[*numHist].value = other;
+        strcpy(transaction[*numHist].address, "'Other' Account");
+        strcpy(transaction[*numHist].type, "Deposit to");
+        *numHist += 1;
+    }
+
+    do{
+        fflush(stdin); //clear input
+
+        printf("\n\tWould you like to make another deposit(s)? (y/n): ");
+        scanf("%c", &choice);
+        getchar();
+
+        if (tolower(choice) == 'y') deposit(account, transaction, accInd, numHist); //loop back through deposit screen
+            else if (tolower(choice) == 'n') flag = 0;
+            else {
+                printf("\n\t\33[33mIt's a (y)es or (n)o, please try again...\33[0m\n\t"); //ask if user wants recommended amount again
+                flag = 1;
+            }
+    } while(flag == 1);
+}
+
+void payBill(User *account, History *transaction, int accInd, int *numHist) {  //function to pay a bill
+    int amount, flag;
+    char choice, input[50], address[20];
+
+    clrscr();
+
+    printBalance(account, accInd); //print user finances
+
+    printf("\n\t\t === \33[36mPAY BILL:\33[0m ===\n"); //header
+
+    printf("\n\t- How much money is being paid?\n\tAmount being transferred: $"); //prompts and user input
+
+    gets(input); //user input
+    amount = round(atof(input)*100);
+
+    if (amount <= 0 || amount > account[accInd].chequing + account[accInd].overdraft) { //invalid amount (character ebtered or negative number)
+
+        printf("\n\t\33[31mSorry, thats's an invalid amount to transfer...\33[31m"); //error message
+        if (amount > account[accInd].chequing + account[accInd].overdraft) printf("\n\n\t- You are trying to transfer more than your chequing\n\t  balance + overdraft\n");
+
+        do {
+            fflush(stdin); //clear input
+
+            printf("\n\tWould you like to try again? (y/n): ");
+            scanf("%c", &choice);
+            getchar();
+
+            if (choice == 'y') payBill(account, transaction, accInd, numHist);
+            else if (choice == 'n') return;
+            else {
+                printf("\n\tIt's a (y)es or a (n)o...\n");
+                flag = 1;
+                pause();
+            }
+        } while (flag == 1);
+    }
+
+    do{ //scan recipient name
+        printf("\n\tWho is the bill payable to?\n\tName: ");
+        gets(input);
+
+        if(input[0] == '\0') printf("\n\t\33[31mInvalid Name...\33[0m\n"); //if the user just pressed enter
+    } while(input[0] == '\0'); //loops until there is something in the name box
+
+    do { //scan account number
+        printf("\tAccount Number: ");
+        gets(address);
+
+        if(address[0] == '\0') printf("\n\t\33[31mInvalid Account Number...\33[0m\n\n\t"); //if the user just hit ente
+    } while(address[0] == '\0');
+
+    do { //confirm or cancel transfer
+        printf("\n\tConfirm Payment of \33[32m$%.2f\33[0m to \33[34m%s\33[0m \n\t(Account No. \33[34m%s\33[0m)? \n\ty/n: ", amount/(float)100, input, address);
+        scanf("%c", &choice);
+        getchar();
+
+        if (tolower(choice) == 'y') { //record transaction in history
+            account[accInd].chequing -= amount; //remove money from balance
+
+            //record transaction
+            transaction[*numHist].value = amount; //set value of transaction
+            strcpy(transaction[*numHist].type, "Bill paid to"); //set description of transaction
+            sprintf(transaction[*numHist].address, "%s, Account No. %s", input, address); //record transaction recipient name and account number
+
+            flag = 0; //exit error trap loop
+            *numHist += 1; //increase counter for next transaction
+        }
+        else if (tolower(choice) == 'n') {
+            printf("\n\t\t\33[33m*Transaction Cancelled*\33[0m\n\n\t");
+            flag = 0; //exit loop without making any changes
+            pause();
+            fflush(stdin);
+            return;
+        }
+        else {
+            printf("\n\33[33mIt's a (y)es or (n)o, please try again...\33[0m\n\n"); //confirm y/n again
+            fflush(stdin);
+            flag = 1;
+        }
+    } while (flag == 1);
+}
+
+void viewHistory(User *account, History *transaction, int accInd, int numHist) { //view transaction history
+    int x;
+    char str[255];
+
+    clrscr();
+    printBalance(account, accInd);
+
+    printf("\n\t\t === \33[36mTRANSACTION HISTORY:\33[0m ===\n"); //header
+
+    //printf("\n\nAmount: '%i' Type: '%s' Address: '%s' x: %i\n\n", transaction[0].value, transaction[0].type, transaction[0].address, x);
+
+    if (numHist == 0) printf("\n\t\t\t\33[33m*No transactions this session*\33[0m\n\n\t");
+    else {
+        printf("\t===%-57s===\n", "");
+        for (x = 0; x < numHist; x++) {
+            strcpy(str, ""); //clear string for each transaction
+
+            sprintf(str, "\t%i - %s %s", x+1, transaction[x].type, transaction[x].address); //build message
+
+            printf("%-55s \33[32m$%.2f\33[0m\n", str, transaction[x].value/(float)100); //print transaction info with nice spacing
+        }
+        printf("\t===%-57s===\n\n\t", "");
+    }
+    pause();
+}
+
+int printMenu(User *account, int accInd) { //print menu of user's options
+    char selection[25];
+
+    clrscr();
+
+    printf("\n Welcome %s!\n", account[accInd].name); //welcomes the user
+    printBalance(account, accInd); //print user finances
+
+    //display options
+    printf("\n\t\t\t === \33[36mMENU:\33[0m ===\n\n\t\t What would you like to do?\n");
+    printf("\t\t------------------------------\n");
+    printf("\t\t1. Withdraw\n\t\t2. Deposit\n\t\t3. Pay Bill\n\t\t4. View Transaction History\n\t\t5. Quit\n");
+    printf("\t\t------------------------------\n");
+
+    printf("\n\t\t  Selection: "); //user input
+    gets(selection);
+
+    if (atoi(selection) > 0 && atoi(selection) < 6) return atoi(selection); //if valid selection is made
+    else {
+        printf("\n\t\33[31mSorry, that's not a valid entry, please try again...\33[0m\n\n\t"); //if user entered characters or invalid number
+        pause();
+        printMenu(account, accInd);
+    }
+}
+
+void printToFile(User *account, int numAcc, FILE *fp) { //reprint all user info to file
+    for (int x = 0; x < numAcc; x++) {
+        fprintf(fp, "%s\n%i\n%s\n%ld\n%ld\n%i\n%i",account[x].name,account[x].cardNum, account[x].password, account[x].chequing, account[x].savings, account[x].other, account[x].overdraft);
+    }
+}
+
+int main() {
+    FILE *fp;
+    User account[20]; //set up account arrays
+    History transaction[30]; //set up transaction history array
+    int numAcc, numHist = 0, accInd;
+    int selection;
+    int loop;
+
+    fp = fopen("atmUsers.txt", "r"); //open file
+
+    if (fp == NULL) { //error trap
+            printf("\n\n\t\33[31mError opening file, please try again...\33[0m\n");
+
+            fclose(fp);
+
+            exit(0);
+    }
+
+    numAcc = scanData(fp, account); //scan in all user accounts
+    accInd = loginMenu(account, &numAcc); //save index of the account user logged in as
+
+    do { //while the user chooses something other than exit
+        selection = printMenu(account, accInd); //get selection
+
+        if (selection == 1) withdraw(account, transaction, accInd, &numHist); //withdraw funds
+        else if (selection == 2) deposit(account, transaction, accInd, &numHist); //deposit funds
+        else if (selection == 3) payBill(account, transaction, accInd, &numHist); //pay bill
+        else if (selection == 4) viewHistory(account, transaction, accInd, numHist); //view transaction history
+
+        fflush(stdin); //clear any remaining inputs from the functions
+
+        if (selection != 5) loop = 1;
+        else loop = 0;
+
+    } while (loop == 1); //loop until the user chooses to exit
+
+    //print new user info to file
+    fp = fopen("atmUsers.txt", "w+"); //open and clear file
+
+    printToFile(account, numAcc, fp); //reprint all user info
+    fclose(fp);
+
+    //end screen
+    clrscr();
+
+    printf("\n\t\t\t    === \33[36mSIGNED OUT\33[0m ===\n\n\t*THANKS FOR BANKING WITH US, WE HOPE TO SEE YOU BACK SOON*\n\n");
+
+    return 0;
+}
